@@ -1376,16 +1376,18 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       label: "Subagent",
       description:
         "Spawn a sub-agent in a dedicated terminal multiplexer pane. " +
-        "IMPORTANT: This tool returns IMMEDIATELY — the sub-agent runs asynchronously in the background. " +
-        "You will NOT have results when this tool returns. Results are delivered later via a steer message. " +
-        "Do NOT fabricate, assume, or summarize results after calling this tool. " +
-        "Either wait for the steer message or move on to other work.",
+        "This is a fire-and-forget async tool: the call returns immediately with only an acknowledgement. " +
+        "When the sub-agent finishes, the harness AUTOMATICALLY delivers its result as a steer message that wakes you up and starts a new turn — you do not need to do anything to receive it. " +
+        "DO NOT write polling loops, sleep/wait commands, tail/watch scripts, or repeatedly read session/log files to detect completion. DO NOT call subagents_list or any other tool to 'check' status. All of that is wasted work — the harness handles delivery for you. " +
+        "DO NOT fabricate, assume, or summarize results after calling this tool. " +
+        "After spawning, either end your turn immediately, or work on other independent tasks (including spawning more subagents in parallel). The harness will wake you with the result when it is ready.",
       promptSnippet:
         "Spawn a sub-agent in a dedicated terminal multiplexer pane. " +
-        "IMPORTANT: This tool returns IMMEDIATELY — the sub-agent runs asynchronously in the background. " +
-        "You will NOT have results when this tool returns. Results are delivered later via a steer message. " +
-        "Do NOT fabricate, assume, or summarize results after calling this tool. " +
-        "Either wait for the steer message or move on to other work.",
+        "This is a fire-and-forget async tool: the call returns immediately with only an acknowledgement. " +
+        "When the sub-agent finishes, the harness AUTOMATICALLY delivers its result as a steer message that wakes you up and starts a new turn — you do not need to do anything to receive it. " +
+        "DO NOT write polling loops, sleep/wait commands, tail/watch scripts, or repeatedly read session/log files to detect completion. DO NOT call subagents_list or any other tool to 'check' status. All of that is wasted work — the harness handles delivery for you. " +
+        "DO NOT fabricate, assume, or summarize results after calling this tool. " +
+        "After spawning, either end your turn immediately, or work on other independent tasks (including spawning more subagents in parallel). The harness will wake you with the result when it is ready.",
       parameters: SubagentParams,
 
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -1685,13 +1687,17 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       label: "Resume Subagent",
       description:
         "Resume a previous sub-agent session in a new multiplexer pane. " +
-        "IMPORTANT: Returns IMMEDIATELY — the resumed session runs asynchronously in the background. " +
-        "Results are delivered later via a steer message. Do NOT fabricate or assume results. " +
+        "This is a fire-and-forget async tool: the call returns immediately with only an acknowledgement. " +
+        "When the resumed sub-agent finishes, the harness AUTOMATICALLY delivers its result as a steer message that wakes you up and starts a new turn — you do not need to do anything to receive it. " +
+        "DO NOT write polling loops, sleep/wait commands, tail/watch scripts, or repeatedly read session/log files to detect completion. DO NOT poll for status. All of that is wasted work — the harness handles delivery for you. " +
+        "DO NOT fabricate or assume results. After resuming, either end your turn or work on other independent tasks; the harness will wake you when the result is ready. " +
         "Use when a sub-agent was cancelled or needs follow-up work.",
       promptSnippet:
         "Resume a previous sub-agent session in a new multiplexer pane. " +
-        "IMPORTANT: Returns IMMEDIATELY — the resumed session runs asynchronously in the background. " +
-        "Results are delivered later via a steer message. Do NOT fabricate or assume results. " +
+        "This is a fire-and-forget async tool: the call returns immediately with only an acknowledgement. " +
+        "When the resumed sub-agent finishes, the harness AUTOMATICALLY delivers its result as a steer message that wakes you up and starts a new turn — you do not need to do anything to receive it. " +
+        "DO NOT write polling loops, sleep/wait commands, tail/watch scripts, or repeatedly read session/log files to detect completion. DO NOT poll for status. All of that is wasted work — the harness handles delivery for you. " +
+        "DO NOT fabricate or assume results. After resuming, either end your turn or work on other independent tasks; the harness will wake you when the result is ready. " +
         "Use when a sub-agent was cancelled or needs follow-up work.",
       parameters: Type.Object({
         sessionPath: Type.String({ description: "Path to the session .jsonl file to resume" }),
