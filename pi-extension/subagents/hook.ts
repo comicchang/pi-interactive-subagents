@@ -54,10 +54,10 @@ const lastStatusHookTime = new Map<string, number>();
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-export function loadHooksConfig(): HooksConfig | null {
-  const PACKAGE_ROOT = join(SUBAGENTS_DIR, "../..");
+export function loadHooksConfig(configPath?: string): HooksConfig | null {
+  const resolvedPath = configPath ?? join(SUBAGENTS_DIR, "../..", "config.json");
   try {
-    const raw = readFileSync(join(PACKAGE_ROOT, "config.json"), "utf8");
+    const raw = readFileSync(resolvedPath, "utf8");
     const config = JSON.parse(raw);
     return config.hooks ?? null;
   } catch {

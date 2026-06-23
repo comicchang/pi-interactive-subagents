@@ -55,6 +55,11 @@ import {
   findLatestAssistantError,
 } from "../pi-extension/subagents/subagent-done.ts";
 import { __pollForExitTest__ } from "../pi-extension/subagents/cmux.ts";
+import {
+  loadHooksConfig,
+  nextSequence,
+  cleanupHookState,
+} from "../pi-extension/subagents/hook.ts";
 
 // --- Helpers ---
 
@@ -2374,5 +2379,81 @@ describe("cmux.ts", () => {
       const result = isWezTermAvailable();
       assert.equal(typeof result, "boolean");
     });
+  });
+});
+
+describe("hook.ts", () => {
+  it("loads hooks config from config.json", () => {
+    withTempDir((dir) => {
+      const configPath = join(dir, "config.json");
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          hooks: {
+            enabled: true,
+            status_throttle_ms: 3000,
+            timeout_ms: 500,
+            commands: [
+              {
+                command: "echo",
+                args: ["test"],
+                events: ["subagent-start", "subagent-stop"],
+              },
+            ],
+          },
+        }, null, 2) + "\n",
+      );
+
+      const config = loadHooksConfig(configPath);
+
+      assert.deepEqual(config, {
+        enabled: true,
+        status_throttle_ms: 3000,
+        timeout_ms: 500,
+        commands: [
+          {
+            command: "echo",
+            args: ["test"],
+            events: ["subagent-start", "subagent-stop"],
+          },
+        ],
+      });
+    });
+  });
+
+  it("returns null when hooks config is missing", () => {
+    withTempDir((dir) => {
+      const configPath = join(dir, "config.json");
+      writeFileSync(configPath, JSON.stringify({ status: { enabled: true } }, null, 2) + "\n");
+
+      const config = loadHooksConfig(configPath);
+
+      assert.equal(config, null);
+    });
+  });
+
+  it("returns null when config.json is missing", () => {
+    withTempDir((dir) => {
+      const configPath = join(dir, "config.json");
+
+      const config = loadHooksConfig(configPath);
+
+      assert.equal(config, null);
+    });
+  });
+
+  it("generates monotonic sequence numbers", () => {
+    const seq1 = nextSequence();
+    const seq2 = nextSequence();
+    const seq3 = nextSequence();
+
+    assert.ok(seq2 > seq1);
+    assert.ok(seq3 > seq2);
+  });
+
+  it("cleans up hook state for a subagent", () => {
+    // Should not throw
+    cleanupHookState("test-id-123");
+    cleanupHookState("non-existent-id");
   });
 });
