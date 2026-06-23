@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const SUBAGENTS_DIR = dirname(fileURLToPath(import.meta.url));
@@ -55,14 +56,26 @@ const lastStatusHookTime = new Map<string, number>();
 // ── Config ───────────────────────────────────────────────────────────────────
 
 export function loadHooksConfig(configPath?: string): HooksConfig | null {
-  const resolvedPath = configPath ?? join(SUBAGENTS_DIR, "../..", "config.json");
-  try {
-    const raw = readFileSync(resolvedPath, "utf8");
-    const config = JSON.parse(raw);
-    return config.hooks ?? null;
-  } catch {
-    return null;
+  // 优先级：用户指定路径 > 用户级配置 > 插件级配置
+  const paths = configPath
+    ? [configPath]
+    : [
+        join(homedir(), ".pi", "agent", "hooks.json"),
+        join(homedir(), ".omp", "agent", "hooks.json"),
+        join(SUBAGENTS_DIR, "../..", "config.json"),
+      ];
+
+  for (const p of paths) {
+    try {
+      const raw = readFileSync(p, "utf8");
+      const config = JSON.parse(raw);
+      const hooks = config.hooks ?? null;
+      if (hooks) return hooks;
+    } catch {
+      // 继续尝试下一个路径
+    }
   }
+  return null;
 }
 
 // ── Fire ─────────────────────────────────────────────────────────────────────
