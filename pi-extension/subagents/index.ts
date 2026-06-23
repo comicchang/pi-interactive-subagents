@@ -53,6 +53,13 @@ import {
   type ActivityReadResult,
   type SubagentActivityState,
 } from "./activity.ts";
+import {
+  type HooksConfig,
+  loadHooksConfig,
+  emitSubagentStart,
+  emitSubagentStatus,
+  emitSubagentStop,
+} from "./hook.ts";
 
 /** Absolute path to `pi-extension/subagents`. https://github.com/nodejs/node/issues/37845 */
 const SUBAGENTS_DIR = dirname(fileURLToPath(import.meta.url));
@@ -416,6 +423,7 @@ function getArtifactDir(sessionDir: string, sessionId: string): string {
 }
 
 const statusConfig = loadStatusConfig();
+const hooksConfig = loadHooksConfig();
 
 function formatWidgetRightLabel(snapshot: StatusSnapshot): string {
   if (snapshot.kind === "starting") return " starting… ";
@@ -1076,6 +1084,14 @@ async function launchSubagent(
     };
 
     runningSubagents.set(id, running);
+    emitSubagentStart(hooksConfig, {
+      id,
+      name: params.name,
+      agent: params.agent,
+      sessionFile: subagentSessionFile,
+      surface,
+      interactive: effectiveInteractive,
+    });
     return running;
   }
 
@@ -1214,6 +1230,14 @@ async function launchSubagent(
   };
 
   runningSubagents.set(id, running);
+  emitSubagentStart(hooksConfig, {
+    id,
+    name: params.name,
+    agent: params.agent,
+    sessionFile: subagentSessionFile,
+    surface,
+    interactive: effectiveInteractive,
+  });
   return running;
 }
 
@@ -1293,6 +1317,15 @@ async function watchSubagent(
 
       closeSurface(surface);
       runningSubagents.delete(running.id);
+      emitSubagentStop(hooksConfig, {
+        id: running.id,
+        name: running.name,
+        agent: running.agent,
+        sessionFile: running.sessionFile,
+        status: result.exitCode === 0 ? "done" : "failed",
+        exitCode: result.exitCode,
+        elapsedMs: elapsed * 1000,
+      });
 
       return { name, task, summary, exitCode: result.exitCode, elapsed, ...(sessionId ? { claudeSessionId: sessionId } : {}) };
     }
@@ -1318,6 +1351,16 @@ async function watchSubagent(
 
     closeSurface(surface);
     runningSubagents.delete(running.id);
+    emitSubagentStop(hooksConfig, {
+      id: running.id,
+      name: running.name,
+      agent: running.agent,
+      sessionFile: running.sessionFile,
+      status: result.exitCode === 0 ? "done" : "failed",
+      exitCode: result.exitCode,
+      elapsedMs: elapsed * 1000,
+      error: result.errorMessage,
+    });
 
     return {
       name,
@@ -1334,6 +1377,16 @@ async function watchSubagent(
       closeSurface(surface);
     } catch {}
     runningSubagents.delete(running.id);
+    emitSubagentStop(hooksConfig, {
+      id: running.id,
+      name: running.name,
+      agent: running.agent,
+      sessionFile: running.sessionFile,
+      status: signal.aborted ? "cancelled" : "failed",
+      exitCode: 1,
+      elapsedMs: (Date.now() - startTime),
+      error: signal.aborted ? "cancelled" : (err?.message ?? String(err)),
+    });
 
     if (signal.aborted) {
       return {
