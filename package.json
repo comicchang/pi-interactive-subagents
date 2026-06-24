@@ -21,6 +21,11 @@
     "@mariozechner/pi-tui": "*",
     "@sinclair/typebox": "*"
   },
+  "peerDependenciesMeta": {
+    "@mariozechner/pi-coding-agent": { "optional": true },
+    "@mariozechner/pi-tui": { "optional": true },
+    "@sinclair/typebox": { "optional": true }
+  },
   "pi": {
     "extensions": [
       "./pi-extension/subagents/index.ts"
