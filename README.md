@@ -464,6 +464,106 @@ Every sub-agent session displays a compact tools widget showing available and de
 
 ---
 
+## Hooks (External Integration)
+
+pi-interactive-subagents can emit hooks to external tools (e.g., [tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)) for status monitoring.
+
+### Configuration
+
+Add a `hooks` section to `config.json`:
+
+```json
+{
+  "hooks": {
+    "enabled": true,
+    "status_throttle_ms": 5000,
+    "timeout_ms": 1000,
+    "commands": [
+      {
+        "command": "tmux-agent-sidebar",
+        "args": ["hook", "pi"],
+        "events": ["subagent-start", "subagent-status", "subagent-stop"]
+      }
+    ]
+  }
+}
+```
+
+### Hook Protocol
+
+Hooks use a generic, best-effort protocol:
+
+1. **Invocation**: `<command> <args...> <event>` with JSON payload on stdin
+2. **Fire-and-forget**: Hook failures never affect subagent lifecycle
+3. **Fail-open**: Spawn errors, timeouts, and non-zero exits are silently ignored
+
+Example invocation:
+```bash
+tmux-agent-sidebar hook pi subagent-start
+# stdin: {"version":1,"source":"pi-interactive-subagents","event":"subagent-start","id":"abc","name":"Scout",...}
+```
+
+### Events
+
+| Event | When | Status |
+-------|------|--------|
+| `subagent-start` | Subagent spawned | `starting` |
+| `subagent-status` | Status polled (throttled) | `starting`, `active`, `waiting`, `stalled`, `running` |
+| `subagent-stop` | Subagent completed/failed | `done`, `failed`, `cancelled` |
+
+### Payload Schema
+
+```typescript
+interface HookPayload {
+  version: 1;
+  source: "pi-interactive-subagents";
+  event: "subagent-start" | "subagent-status" | "subagent-stop";
+  id: string;
+  name: string;
+  agent?: string;
+  timestamp: string;  // ISO 8601
+  sequence: number;   // monotonic, for ordering
+  session_file?: string;
+  elapsed_ms?: number;
+
+  // Event-specific fields
+  status: string;
+  tool_name?: string;      // subagent-status only
+  active_scope?: string;   // subagent-status only
+  exit_code?: number;      // subagent-stop only
+  error?: string;          // subagent-stop only
+}
+```
+
+### Multiple Commands (Fan-out)
+
+You can configure multiple hook commands for different consumers:
+
+```json
+{
+  "hooks": {
+    "commands": [
+      { "command": "tmux-agent-sidebar", "args": ["hook", "pi"] },
+      { "command": "/usr/local/bin/audit-log", "args": [], "events": ["subagent-start", "subagent-stop"] }
+    ]
+  }
+}
+```
+
+---
+## oh-my-pi (omp) Compatibility
+
+This plugin works inside [oh-my-pi](https://github.com/can1357/oh-my-pi) environments where the `pi` binary may not be installed.
+
+**Agent config directory** is derived from the running process name. If the binary is `omp`, the plugin uses `~/.omp/agent`; if `pi`, it uses `~/.pi/agent`. This drives both agent discovery and CLI binary selection. Override with:
+
+```bash
+export PI_CODING_AGENT_DIR=~/.omp/agent   # explicit agent config root
+export PI_SUBAGENT_CLI=omp                # explicit CLI binary override
+```
+
+**No changes required** — if `pi` is installed, behaviour is identical to the original.
+
 ## Requirements
 
 - [pi](https://github.com/badlogic/pi-mono) — the coding agent

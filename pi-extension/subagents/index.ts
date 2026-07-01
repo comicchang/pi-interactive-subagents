@@ -14,6 +14,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { homedir } from "node:os";
+import { resolveAgentConfigDir, resolveDefaultCli, buildSessionArgs, findLatestSessionFile } from "./omp-compat.ts";
 import {
   isMuxAvailable,
   muxSetupHint,
@@ -53,6 +54,13 @@ import {
   type ActivityReadResult,
   type SubagentActivityState,
 } from "./activity.ts";
+import {
+  type HooksConfig,
+  loadHooksConfig,
+  emitSubagentStart,
+  emitSubagentStatus,
+  emitSubagentStop,
+} from "./hook.ts";
 
 /** Absolute path to `pi-extension/subagents`. https://github.com/nodejs/node/issues/37845 */
 const SUBAGENTS_DIR = dirname(fileURLToPath(import.meta.url));
@@ -90,7 +98,7 @@ const SubagentParams = Type.Object({
   agent: Type.Optional(
     Type.String({
       description:
-        "Agent name to load defaults from (e.g. 'worker', 'scout', 'reviewer'). Reads ~/.pi/agent/agents/<name>.md for model, tools, skills.",
+        "Agent name to load defaults from (e.g. 'worker', 'scout', 'reviewer'). Reads ~/.pi/agent/agents/<name>.md and ~/.omp/agent/agents/<name>.md for model, tools, skills.",
     }),
   ),
   systemPrompt: Type.Optional(
@@ -195,9 +203,9 @@ function resolveDenyTools(agentDefs: AgentDefaults | null): Set<string> {
   return denied;
 }
 
-/** Resolve the global agent config directory, respecting PI_CODING_AGENT_DIR. */
+/** Resolve the global agent config directory, respecting PI_CODING_AGENT_DIR and omp detection. */
 function getAgentConfigDir(): string {
-  return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+  return resolveAgentConfigDir();
 }
 
 function getBundledAgentsDir(): string {
@@ -363,7 +371,6 @@ function loadAgentDefaults(agentName: string): AgentDefaults | null {
     join(configDir, "agents", `${agentName}.md`),
     join(getBundledAgentsDir(), `${agentName}.md`),
   ];
-
   for (const p of paths) {
     if (!existsSync(p)) continue;
     const parsed = parseAgentDefinition(readFileSync(p, "utf8"), agentName);
@@ -416,6 +423,7 @@ function getArtifactDir(sessionDir: string, sessionId: string): string {
 }
 
 const statusConfig = loadStatusConfig();
+const hooksConfig = loadHooksConfig();
 
 function formatWidgetRightLabel(snapshot: StatusSnapshot): string {
   if (snapshot.kind === "starting") return " starting… ";
@@ -504,6 +512,8 @@ interface RunningSubagent {
   };
   abortController?: AbortController;
   cli?: string;
+  /** Non-null when the CLI uses --session-dir (omp); findLatestSessionFile() after exit. */
+  sessionDir?: string | null;
   sentinelFile?: string;
   statusState: SubagentStatusState;
   /**
@@ -1076,14 +1086,22 @@ async function launchSubagent(
     };
 
     runningSubagents.set(id, running);
+    emitSubagentStart(hooksConfig, {
+      id,
+      name: params.name,
+      agent: params.agent,
+      sessionFile: subagentSessionFile,
+      surface,
+      interactive: effectiveInteractive,
+    });
     return running;
   }
 
   // ── Pi CLI path ──
 
-  // Build pi command
-  const parts: string[] = ["pi"];
-  parts.push("--session", shellEscape(subagentSessionFile));
+  const cli = resolveDefaultCli();
+  const sessionArgs = buildSessionArgs(cli, subagentSessionFile);
+  const parts: string[] = [cli, ...sessionArgs.args];
 
   const subagentDonePath = join(SUBAGENTS_DIR, "subagent-done.ts");
   parts.push("-e", shellEscape(subagentDonePath));
@@ -1202,8 +1220,8 @@ async function launchSubagent(
     task: params.task,
     agent: params.agent,
     surface,
-    startTime,
     sessionFile: subagentSessionFile,
+    sessionDir: sessionArgs.sessionDir,
     launchScriptFile,
     activityFile,
     interactive: effectiveInteractive,
@@ -1214,6 +1232,14 @@ async function launchSubagent(
   };
 
   runningSubagents.set(id, running);
+  emitSubagentStart(hooksConfig, {
+    id,
+    name: params.name,
+    agent: params.agent,
+    sessionFile: subagentSessionFile,
+    surface,
+    interactive: effectiveInteractive,
+  });
   return running;
 }
 
@@ -1293,14 +1319,28 @@ async function watchSubagent(
 
       closeSurface(surface);
       runningSubagents.delete(running.id);
+      emitSubagentStop(hooksConfig, {
+        id: running.id,
+        name: running.name,
+        agent: running.agent,
+        sessionFile: running.sessionFile,
+        status: result.exitCode === 0 ? "done" : "failed",
+        exitCode: result.exitCode,
+        elapsedMs: elapsed * 1000,
+      });
 
       return { name, task, summary, exitCode: result.exitCode, elapsed, ...(sessionId ? { claudeSessionId: sessionId } : {}) };
     }
 
-    // Pi subagent result extraction
+    // Pi/omp subagent result extraction
     let summary: string;
-    if (existsSync(sessionFile)) {
-      const allEntries = getNewEntries(sessionFile, 0);
+    // For omp (--session-dir), find the actual session file omp created.
+    // For pi (--session), use the exact file path.
+    const effectiveSessionFile = running.sessionDir
+      ? findLatestSessionFile(running.sessionDir, sessionFile)
+      : sessionFile;
+    if (effectiveSessionFile && existsSync(effectiveSessionFile)) {
+      const allEntries = getNewEntries(effectiveSessionFile, 0);
       summary =
         findLastAssistantMessage(allEntries) ??
         (result.errorMessage
@@ -1318,12 +1358,22 @@ async function watchSubagent(
 
     closeSurface(surface);
     runningSubagents.delete(running.id);
+    emitSubagentStop(hooksConfig, {
+      id: running.id,
+      name: running.name,
+      agent: running.agent,
+      sessionFile: running.sessionFile,
+      status: result.exitCode === 0 ? "done" : "failed",
+      exitCode: result.exitCode,
+      elapsedMs: elapsed * 1000,
+      error: result.errorMessage,
+    });
 
     return {
       name,
       task,
       summary,
-      sessionFile,
+      sessionFile: effectiveSessionFile ?? sessionFile,
       exitCode: result.exitCode,
       elapsed,
       ping: result.ping,
@@ -1334,6 +1384,16 @@ async function watchSubagent(
       closeSurface(surface);
     } catch {}
     runningSubagents.delete(running.id);
+    emitSubagentStop(hooksConfig, {
+      id: running.id,
+      name: running.name,
+      agent: running.agent,
+      sessionFile: running.sessionFile,
+      status: signal.aborted ? "cancelled" : "failed",
+      exitCode: 1,
+      elapsedMs: (Date.now() - startTime),
+      error: signal.aborted ? "cancelled" : (err?.message ?? String(err)),
+    });
 
     if (signal.aborted) {
       return {
